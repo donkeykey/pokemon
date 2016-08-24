@@ -7,20 +7,57 @@
 //    api_secret : face.secret
 //}
 //var client = new FacePlusPlus(config);
-//var aws = require('aws-sdk');
+var aws = require('aws-sdk');
 //var s3 = new aws.S3({params: {Bucket: 'fukase-no-owari.net'}});
 
 var doc = require('dynamodb-doc');
 var dynamo = new doc.DynamoDB();
 
-//var dbparams = {};
-//dbparams.TableName = "LineFriend";
+var dbparams = {};
+dbparams.TableName = "PokeMention";
+
+var lambda = new aws.Lambda({apiVersion: '2015-03-31'});
 
 exports.handler = function(event, context) {
     console.log("id : " + event.id);
     console.log("location : " + event.location);
     console.log("action : " + event.action);
-    context.done(null, "id : " + event.id + " & location : " + event.location + " & action : " + event.action);
+    var location = event.location.split(',');
+    var latStr = location[0].split('=');
+    var lat = latStr[1];
+    var lonStr = location[1].split('&');
+    var lon = lonStr[0];
+    dbparams.Item = {
+        sender_id: event.id,
+        action: event.action,
+        location: lat + ',' + lon
+    };
+    dynamo.putItem(dbparams, function(err, data) {
+        if (err) {
+            console.log(err, err.stack);
+        } else {
+            console.log('send to DynamoDB.');
+            if (event.action == 'entered') {
+                var params = {
+                    FunctionName: "PokeSearch",
+                    InvokeArgs: JSON.stringify({
+                        "location": lat + ',' + lon,
+                        "id" : event.id
+                    }, null, ' ')
+                };
+                lambda.invokeAsync(params, function(err, data){
+                    if (err) {
+                        context.done('error', err.stack);
+                    } else {
+                        context.done(null, "id : " + event.id + " & location : " + event.location + " & action : " + event.action);
+                    }
+                });
+            } else {
+                context.done(null, 'done');
+            }
+        }
+    });
+
 
 //    res = event.result[0];
 //

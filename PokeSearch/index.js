@@ -1,46 +1,64 @@
 'use strict';
-
-const PokemonGO = require('pokemon-go-node-api');
-
-//Set environment variables or replace placeholder text
-var location = {
-    type: 'coords',
-    coords: {
-        latitude: 35.679624,
-        longitude: 139.736764,
-        altitude: 0
-    }
-};
-
-var username = 'donkeyshima';
-var password = '923Mguoslifc';
-var provider = 'ptc';
+var request = require('request');
+var doc = require('dynamodb-doc');
+var dynamo = new doc.DynamoDB();
+var async = require('async');
 
 exports.handler = function(event, context) {
-
-    var a = new PokemonGO.Pokeio();
-    a.init(username, password, location, provider, (err) => {
-        if (err) throw err;
-
-        console.log('1[i] Current location: ' + a.playerInfo.locationName);
-        console.log('1[i] lat/long/alt: : ' + a.playerInfo.latitude + ' ' + a.playerInfo.longitude + ' ' + a.playerInfo.altitude);
-
-        context.done(null, "done");
-        a.Heartbeat((err,hb)=>{
-            if(err) {
-                console.log(err);
-            }
-
-            let texts = '';
-            for (var i = hb.cells.length - 1; i >= 0; i--) {
-                if(hb.cells[i].NearbyPokemon[0]) {
-                    //console.log(a.pokemonlist[0])
-                    let pokemon = a.pokemonlist[parseInt(hb.cells[i].NearbyPokemon[0].PokedexNumber)-1];
-                    console.log('1[+] There is a ' + pokemon.name + ' near.');
-
-                }
+    if (event.id) {
+        var location = event.location.split(',');
+        var url = 'http://210.140.83.12:8888/?lat=' + location[0] + '&lon=' + location[1] + '&id=' + event.id;
+        console.log('url : ' + url);
+        request(url, function (error, response, body) {
+            if (!error && response.statusCode == 200) {
+                console.log(body);
+                callback2(null, "done");
+            } else {
+                console.log('error: '+ response.statusCode);
+                callback2(null, "err");
             }
         });
-
-    });
+    } else {
+        async.waterfall([
+            function init(callback) {
+                dynamo.scan({TableName : "PokeMention"}, function(err, data) {
+                    if (err) {
+                        callback(err);
+                    } else {
+                        console.log(JSON.stringify(data));
+                        callback(null, data);
+                    }
+                });
+            },
+            function init(data, callback) {
+                async.forEachSeries(data["Items"], function(i, callback2){
+                    if (i.action == 'entered') {
+                        var location = i.location.split(',');
+                        var url = 'http://210.140.83.12:8888/?lat=' + location[0] + '&lon=' + location[1] + '&id=' + i.sender_id;
+                        console.log('url : ' + url);
+                        request(url, function (error, response, body) {
+                            if (!error && response.statusCode == 200) {
+                                console.log(body);
+                                callback2(null, "done");
+                            } else {
+                                console.log('error: '+ response.statusCode);
+                                callback2(null, "err");
+                            }
+                        });
+                    } else {
+                        callback2(null, "done");
+                    }
+                }, function(err){
+                    //処理2
+                    if(err) throw err;
+                });
+            }
+        ], function (err, result) {
+            if (err) {
+                context.done(error);
+            } else {
+                context.done(null, "done");
+            }
+        });
+    }
 }

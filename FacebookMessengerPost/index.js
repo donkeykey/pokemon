@@ -3,8 +3,17 @@ var async = require('async');
 var doc = require('dynamodb-doc');
 var dynamo = new doc.DynamoDB();
 var token = require('./token.json');
+var aws = require('aws-sdk');
+var lambda = new aws.Lambda({apiVersion: '2015-03-31'});
 var msg;
 var options;
+var pattern = {
+    "help": "使い方\nstop :現在滞在している登録地点の通知を止めます。\nstart : 最後に滞在した登録地点の通知を有効にします。\n最後に滞在した登録地点の生息情報を取得しました。\nset $lat,$lon : 通知対象地点を直接登録します。",
+    "stop": "現在滞在している登録地点の通知を止めました。",
+    "start": "最後に滞在した登録地点の通知を有効にしました。",
+    "get": "最後に滞在した登録地点の生息情報を取得しました。",
+    "set": "通知対象地点を登録しました。"
+} 
 exports.handler = function(event, context) {
     async.waterfall([
         function init(callback) {
@@ -21,10 +30,128 @@ exports.handler = function(event, context) {
                     callback(err);
                 } else {
                     if (Object.keys(res).length) {
-                        console.log("dynamo : " + JSON.stringify(res));
-                        callback(null, event.entry[0].messaging[0].message.text);
+                        var text = event.entry[0].messaging[0].message.text;
+                        if (text == 'stop') {
+                            var dbparams = {
+                                Key: {
+                                     sender_id: event.entry[0].messaging[0].sender.id
+                                },
+                                TableName: "PokeMention"
+                            }
+                            dynamo.getItem(dbparams, function(err, data) {
+                                if (err) {
+                                    console.log(err, err.stack);
+                                } else {
+                                    var dbparams2 = {
+                                        Item: {
+                                            sender_id: data.Item.sender_id,
+                                            location: data.Item.location,
+                                            action: "exited"
+                                        },
+                                        TableName: "PokeMention"
+                                    };
+                                    dynamo.putItem(dbparams2, function(err, data) {
+                                        if (err) {
+                                            console.log(err, err.stack);
+                                        } else {
+                                            console.log('send to DynamoDB.');
+                                        }
+                                    });
+                                }
+                            });
+                        } else if (text == 'start') {
+                            var dbparams = {
+                                Key: {
+                                     sender_id: event.entry[0].messaging[0].sender.id
+                                },
+                                TableName: "PokeMention"
+                            }
+                            dynamo.getItem(dbparams, function(err, data) {
+                                if (err) {
+                                    console.log(err, err.stack);
+                                } else {
+                                    var dbparams2 = {
+                                        Item: {
+                                            sender_id: data.Item.sender_id,
+                                            location: data.Item.location,
+                                            action: "entered"
+                                        },
+                                        TableName: "PokeMention"
+                                    };
+                                    dynamo.putItem(dbparams2, function(err, data) {
+                                        if (err) {
+                                            console.log(err, err.stack);
+                                        } else {
+                                            console.log('send to DynamoDB.');
+                                        }
+                                    });
+                                }
+                            });
+                        } else if (text = 'get') {
+                            var dbparams = {
+                                Key: {
+                                     sender_id: event.entry[0].messaging[0].sender.id
+                                },
+                                TableName: "PokeMention"
+                            }
+                            dynamo.getItem(dbparams, function(err, data) {
+                                if (err) {
+                                    console.log(err, err.stack);
+                                } else {
+                                    var params = {
+                                        FunctionName: "PokeSearch",
+                                        InvokeArgs: JSON.stringify({
+                                            "location": data.Item.location,
+                                            "id" : data.Item.sender_id
+                                        }, null, ' ')
+                                    };
+                                    lambda.invokeAsync(params, function(err, data){
+                                        if (err) {
+                                            context.done('error', err.stack);
+                                        } else {
+                                            context.done(null, "id : " + event.id + " & location : " + event.location + " & action : " + event.action);
+                                        }
+                                    });
+                                }
+                            });
+                        } else if (text.match(/^set /)) {
+                            var tmp = text.split(' ');
+                            var latlon = tmp[1];
+                            var dbparams = {
+                                Key: {
+                                     sender_id: event.entry[0].messaging[0].sender.id
+                                },
+                                TableName: "PokeMention"
+                            }
+                            dynamo.getItem(dbparams, function(err, data) {
+                                if (err) {
+                                    console.log(err, err.stack);
+                                } else {
+                                    var dbparams2 = {
+                                        Item: {
+                                            sender_id: data.Item.sender_id,
+                                            location: latlon,
+                                            action: data.Item.action
+                                        },
+                                        TableName: "PokeMention"
+                                    };
+                                    dynamo.putItem(dbparams2, function(err, data) {
+                                        if (err) {
+                                            console.log(err, err.stack);
+                                        } else {
+                                            console.log('send to DynamoDB.');
+                                            text = "set";
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        if (pattern[text] === undefined) {
+                            text = "help";
+                        }
+                        callback(null, pattern[text]);
                     } else {
-                        callback(null, 'はじめまして！IFTTTアプリのMaker Actionに https://4opt7zfg6f.execute-api.ap-northeast-1.amazonaws.com/prod/setPokeSearchLocation?id=' + event.entry[0].messaging[0].sender.id + '&location={{OccurredAt}}&action={{EnteredOrExited}} を設定して下さい。');
+                        callback(null, 'はじめまして！IFTTTアプリのMaker Actionに ttps://4opt7zfg6f.execute-api.ap-northeast-1.amazonaws.com/prod/setPokeSearchLocation?id=' + event.entry[0].messaging[0].sender.id + '&location={{LocationMapUrl}}&action={{EnteredOrExited}} を設定して下さい。');
                         var dbparams = {
                             Item: {
                                 sender_id: event.entry[0].messaging[0].sender.id,
