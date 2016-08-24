@@ -7,14 +7,15 @@ var aws = require('aws-sdk');
 var lambda = new aws.Lambda({apiVersion: '2015-03-31'});
 var msg;
 var options;
-var pattern = {
-    "help": "使い方\nstop :現在滞在している登録地点の通知を止めます。\nstart : 最後に滞在した登録地点の通知を有効にします。\n最後に滞在した登録地点の生息情報を取得しました。\nset $lat,$lon : 通知対象地点を直接登録します。",
-    "stop": "現在滞在している登録地点の通知を止めました。",
-    "start": "最後に滞在した登録地点の通知を有効にしました。",
-    "get": "最後に滞在した登録地点の生息情報を取得しました。",
-    "set": "通知対象地点を登録しました。"
-} 
+ 
 exports.handler = function(event, context) {
+    var pattern = {
+        "help": "使い方\nstop :現在滞在している登録地点の通知を止めます。\nstart : 最後に滞在した登録地点の通知を有効にします。\n最後に滞在した登録地点の生息情報を取得しました。\nset $lat,$lon : 通知対象地点を直接登録します。",
+        "stop": "現在滞在している登録地点の通知を止めました。",
+        "start": "最後に滞在した登録地点の通知を有効にしました。",
+        "get": "最後に滞在した登録地点の生息情報を取得しました。",
+        "set": "通知対象地点を登録しました。"
+    }
     async.waterfall([
         function init(callback) {
             var params = {
@@ -55,6 +56,7 @@ exports.handler = function(event, context) {
                                             console.log(err, err.stack);
                                         } else {
                                             console.log('send to DynamoDB.');
+                                            callback(null, pattern[text]);
                                         }
                                     });
                                 }
@@ -83,11 +85,12 @@ exports.handler = function(event, context) {
                                             console.log(err, err.stack);
                                         } else {
                                             console.log('send to DynamoDB.');
+                                            callback(null, pattern[text]);
                                         }
                                     });
                                 }
                             });
-                        } else if (text = 'get') {
+                        } else if (text == 'get') {
                             var dbparams = {
                                 Key: {
                                      sender_id: event.entry[0].messaging[0].sender.id
@@ -140,16 +143,14 @@ exports.handler = function(event, context) {
                                             console.log(err, err.stack);
                                         } else {
                                             console.log('send to DynamoDB.');
-                                            text = "set";
+                                            callback(null, pattern["set"]);
                                         }
                                     });
                                 }
                             });
+                        } else if (pattern[text] === undefined) {
+                            callback(null, pattern["help"]);
                         }
-                        if (pattern[text] === undefined) {
-                            text = "help";
-                        }
-                        callback(null, pattern[text]);
                     } else {
                         callback(null, 'はじめまして！IFTTTアプリのMaker Actionに ttps://4opt7zfg6f.execute-api.ap-northeast-1.amazonaws.com/prod/setPokeSearchLocation?id=' + event.entry[0].messaging[0].sender.id + '&location={{LocationMapUrl}}&action={{EnteredOrExited}} を設定して下さい。');
                         var dbparams = {
